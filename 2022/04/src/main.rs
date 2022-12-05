@@ -40,8 +40,7 @@ fn main() {
 
     let fully_contained = input
         .clone()
-        .map(|(range_1, range_2)| range_1.contains(&range_2) || range_2.contains(&range_1))
-        .filter(|x| *x)
+        .filter(|(range_1, range_2)| range_1.contains(range_2) || range_2.contains(range_1))
         .count();
 
     println!(
@@ -50,8 +49,7 @@ fn main() {
     );
 
     let overlapping = input
-        .map(|(range_1, range_2)| range_1.overlaps(&range_2))
-        .filter(|x| *x)
+        .filter(|(range_1, range_2)| range_1.overlaps(range_2))
         .count();
 
     println!("There are {} assignment pairs that overlap", overlapping);
