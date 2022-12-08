@@ -105,16 +105,16 @@ fn main() {
 
     let visible_count = forest
         .coords()
-        .iter()
-        .filter(|c| forest.tree_visible(**c))
+        .into_iter()
+        .filter(|c| forest.tree_visible(*c))
         .count();
 
     println!("There are {} trees visible in the forest", visible_count);
 
     let highest_scenic_score = forest
         .coords()
-        .iter()
-        .map(|c| forest.scenic_score(*c))
+        .into_iter()
+        .map(|c| forest.scenic_score(c))
         .max()
         .unwrap_or(0);
 
