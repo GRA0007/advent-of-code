@@ -61,10 +61,9 @@ impl Stack {
         let mut counts: Vec<usize> = vec![1; self.0.len()];
 
         self.0.iter().enumerate().for_each(|(id, card)| {
-            for _ in 0..counts[id] {
-                for i in 0..card.count_wins() {
-                    counts[id + i + 1] += 1;
-                }
+            let count = counts[id];
+            for i in 0..card.count_wins() {
+                counts[id + i + 1] += count;
             }
         });
 
