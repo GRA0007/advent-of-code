@@ -24,8 +24,19 @@ struct Hand {
 }
 
 impl Hand {
-    fn get_type(&self) -> HandType {
+    fn get_type(&self, joker: char) -> HandType {
         let mut cards: Vec<char> = self.cards.clone();
+
+        // Replace jokers
+        cards = cards
+            .into_iter()
+            .map(|card| match card {
+                'J' => joker,
+                c => c,
+            })
+            .collect();
+
+        // Find groups
         cards.sort();
         let mut groups = Vec::new();
         for (_, group) in &cards.into_iter().group_by(|card| *card) {
@@ -51,20 +62,43 @@ impl Hand {
             unreachable!()
         }
     }
-}
 
-impl Ord for Hand {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.get_type().cmp(&other.get_type()) {
+    fn highest_joker(&self) -> char {
+        CARD_VALUES
+            .into_iter()
+            .filter(|v| *v != 'J')
+            .map(|value| (value, self.get_type(value)))
+            .max_by(|a, b| b.1.cmp(&a.1))
+            .unwrap()
+            .0
+    }
+
+    fn cmp(&self, other: &Self, jokers: bool) -> Ordering {
+        let mut card_values = CARD_VALUES.to_vec();
+        let mut joker_values = ('J', 'J');
+
+        if jokers {
+            // Move joker to the end
+            card_values.retain(|c| *c != 'J');
+            card_values.push('J');
+
+            // Find the highest jokers to use
+            joker_values = (self.highest_joker(), other.highest_joker())
+        }
+
+        match self
+            .get_type(joker_values.0)
+            .cmp(&other.get_type(joker_values.1))
+        {
             Ordering::Equal => self
                 .cards
                 .iter()
                 .zip(other.cards.iter())
                 .find_map(|(a, b)| {
-                    match CARD_VALUES
+                    match card_values
                         .iter()
                         .position(|v| v == a)
-                        .cmp(&CARD_VALUES.iter().position(|v| v == b))
+                        .cmp(&card_values.iter().position(|v| v == b))
                     {
                         Ordering::Equal => None,
                         ord => Some(ord),
@@ -75,20 +109,6 @@ impl Ord for Hand {
         }
     }
 }
-
-impl PartialOrd for Hand {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Hand {
-    fn eq(&self, other: &Self) -> bool {
-        self.get_type() == other.get_type()
-    }
-}
-
-impl Eq for Hand {}
 
 #[derive(Debug)]
 struct Hands(Vec<Hand>);
@@ -110,9 +130,9 @@ impl From<String> for Hands {
 }
 
 impl Hands {
-    fn total_winnings(&self) -> usize {
+    fn total_winnings(&self, jokers: bool) -> usize {
         let mut sorted_hands = self.0.clone();
-        sorted_hands.sort_by(|a, b| b.cmp(a));
+        sorted_hands.sort_by(|a, b| b.cmp(a, jokers));
         sorted_hands
             .iter()
             .enumerate()
@@ -125,7 +145,11 @@ fn main() {
     let input = fs::read_to_string("input.txt").unwrap();
     let hands = Hands::from(input);
 
-    println!("Total winnings are {}", hands.total_winnings());
+    println!("Total winnings are {}", hands.total_winnings(false));
+    println!(
+        "Total winnings with Jokers is {}",
+        hands.total_winnings(true)
+    );
 }
 
 #[cfg(test)]
@@ -136,6 +160,13 @@ mod test {
     fn part_1() {
         let input = fs::read_to_string("test.txt").unwrap();
         let hands = Hands::from(input);
-        assert_eq!(hands.total_winnings(), 6440);
+        assert_eq!(hands.total_winnings(false), 6440);
+    }
+
+    #[test]
+    fn part_2() {
+        let input = fs::read_to_string("test.txt").unwrap();
+        let hands = Hands::from(input);
+        assert_eq!(hands.total_winnings(true), 5905);
     }
 }
