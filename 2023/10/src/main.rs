@@ -19,7 +19,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Pipe(Vec<Direction>);
 
 impl Pipe {
@@ -49,37 +49,51 @@ impl TryFrom<char> for Pipe {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 struct Position {
     x: usize,
     y: usize,
 }
 
 impl Position {
-    fn go(&self, direction: Direction) -> Self {
+    fn go(&self, direction: Direction) -> Result<Self, ()> {
         match direction {
-            Direction::North => Self {
-                x: self.x,
-                y: self.y - 1,
-            },
-            Direction::South => Self {
+            Direction::North => {
+                if self.y == 0 {
+                    Err(())
+                } else {
+                    Ok(Self {
+                        x: self.x,
+                        y: self.y - 1,
+                    })
+                }
+            }
+            Direction::South => Ok(Self {
                 x: self.x,
                 y: self.y + 1,
-            },
-            Direction::East => Self {
+            }),
+            Direction::East => Ok(Self {
                 x: self.x + 1,
                 y: self.y,
-            },
-            Direction::West => Self {
-                x: self.x - 1,
-                y: self.y,
-            },
+            }),
+            Direction::West => {
+                if self.x == 0 {
+                    Err(())
+                } else {
+                    Ok(Self {
+                        x: self.x - 1,
+                        y: self.y,
+                    })
+                }
+            }
         }
     }
 }
 
 struct Field {
     tiles: HashMap<Position, Pipe>,
+    height: usize,
+    width: usize,
     start_pos: Position,
 }
 
@@ -103,20 +117,41 @@ impl From<&str> for Field {
         Field {
             tiles,
             start_pos: start_pos.unwrap(),
+            width: value.lines().next().unwrap().len(),
+            height: value.lines().count(),
         }
     }
 }
 
 impl Field {
     fn can_travel(&self, from: Position, direction: Direction) -> bool {
-        match self.tiles.get(&from.go(direction)) {
-            Some(new_pipe) => new_pipe.has(direction.opposite()),
-            _ => false,
+        match from.go(direction) {
+            Ok(new_pos) => match self.tiles.get(&new_pos) {
+                Some(new_pipe) => new_pipe.has(direction.opposite()),
+                _ => false,
+            },
+            Err(_) => false,
         }
     }
 
-    fn farthest_distance(&self) -> usize {
-        let mut distance = 0;
+    /// Replace start pipe with pipe that fits
+    fn infer_start(&mut self) {
+        let directions = self
+            .tiles
+            .get(&self.start_pos)
+            .unwrap()
+            .0
+            .clone()
+            .into_iter()
+            .filter(|direction| self.can_travel(self.start_pos, *direction))
+            .collect();
+
+        self.tiles.insert(self.start_pos, Pipe(directions));
+    }
+
+    /// Return a list of all pipes in the loop
+    fn calculate_loop(&self) -> Vec<Position> {
+        let mut pipes = Vec::new();
         let mut current_pos = self.start_pos;
         let mut backwards_dir: Option<Direction> = None;
 
@@ -132,27 +167,52 @@ impl Field {
                 .find(|direction| self.can_travel(current_pos, **direction))
                 .unwrap();
 
-            backwards_dir = Some(direction.opposite());
-            current_pos = current_pos.go(*direction);
+            pipes.push(current_pos);
 
-            distance += 1;
+            backwards_dir = Some(direction.opposite());
+            current_pos = current_pos.go(*direction).unwrap();
 
             if current_pos == self.start_pos {
                 break;
             }
         }
 
-        distance / 2
+        pipes
+    }
+
+    /// Count number of tiles enclosed by the loop
+    fn count_enclosed(&self, pipes: Vec<Position>) -> usize {
+        let mut enclosed = 0;
+
+        for y in 0..self.height {
+            let mut in_loop = false;
+            for x in 0..self.width {
+                let pos = Position { x, y };
+                if let Some(pipe) = self.tiles.get(&pos) {
+                    if pipes.contains(&pos) && pipe.0.contains(&Direction::North) {
+                        in_loop = !in_loop;
+                    }
+                } else if in_loop {
+                    enclosed += 1;
+                }
+            }
+        }
+
+        enclosed
     }
 }
 
 fn main() {
     let input = fs::read_to_string("input.txt").unwrap();
-    let field = Field::from(input.as_str());
+    let mut field = Field::from(input.as_str());
 
+    field.infer_start();
+    let pipes = field.calculate_loop();
+
+    println!("The distance to the farthest point is {}", pipes.len() / 2);
     println!(
-        "The distance to the farthest point is {}",
-        field.farthest_distance()
+        "The number of tiles enclosed within the loop is {}",
+        field.count_enclosed(pipes)
     );
 }
 
@@ -168,7 +228,7 @@ mod test {
         -L-J|
         L|-JF";
         let field = Field::from(input);
-        assert_eq!(field.farthest_distance(), 4)
+        assert_eq!(field.calculate_loop().len() / 2, 4)
     }
 
     #[test]
@@ -179,6 +239,56 @@ mod test {
         |F--J
         LJ.LJ";
         let field = Field::from(input);
-        assert_eq!(field.farthest_distance(), 8)
+        assert_eq!(field.calculate_loop().len() / 2, 8)
+    }
+
+    #[test]
+    fn part_2_simple() {
+        let input = "...........
+        .S-------7.
+        .|F-----7|.
+        .||.....||.
+        .||.....||.
+        .|L-7.F-J|.
+        .|..|.|..|.
+        .L--J.L--J.
+        ...........";
+        let mut field = Field::from(input);
+        field.infer_start();
+        assert_eq!(field.count_enclosed(field.calculate_loop()), 4)
+    }
+
+    #[test]
+    fn part_2_medium() {
+        let input = ".F----7F7F7F7F-7....
+        .|F--7||||||||FJ....
+        .||.FJ||||||||L7....
+        FJL7L7LJLJ||LJ.L-7..
+        L--J.L7...LJS7F-7L7.
+        ....F-J..F7FJ|L7L7L7
+        ....L7.F7||L7|.L7L7|
+        .....|FJLJ|FJ|F7|.LJ
+        ....FJL-7.||.||||...
+        ....L---J.LJ.LJLJ...";
+        let mut field = Field::from(input);
+        field.infer_start();
+        assert_eq!(field.count_enclosed(field.calculate_loop()), 8)
+    }
+
+    #[test]
+    fn part_2_complex() {
+        let input = "FF7FSF7F7F7F7F7F---7
+        L|LJ||||||||||||F--J
+        FL-7LJLJ||||||LJL-77
+        F--JF--7||LJLJ7F7FJ-
+        L---JF-JLJ.||-FJLJJ7
+        |F|F-JF---7F7-L7L|7|
+        |FFJF7L7F-JF7|JL---7
+        7-L-JL7||F7|L7F-7F7|
+        L.L7LFJ|||||FJL7||LJ
+        L7JLJL-JLJLJL--JLJ.L";
+        let mut field = Field::from(input);
+        field.infer_start();
+        assert_eq!(field.count_enclosed(field.calculate_loop()), 10)
     }
 }
